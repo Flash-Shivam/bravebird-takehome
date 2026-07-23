@@ -86,7 +86,9 @@ func userID(r *http.Request) string {
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(v)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false) // keep presigned S3 URLs copy-pasteable (& not &)
+	enc.Encode(v)
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
