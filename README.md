@@ -42,14 +42,16 @@ Trigger a job and watch it:
 
 ```bash
 API=$(make -s api-url)
+TOKEN=$(make -s token SUB=demo)
 
-curl -s -X POST $API/jobs -H 'X-User-Id: demo' -H 'Content-Type: application/json' \
+curl -s -X POST $API/jobs -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"prompt":"golang generics","priority":"high"}'
 # => {"job_id":"01K...","status":"QUEUED"}
 
-curl -s $API/jobs/01K...                  # status, timings, failure reason if any
-curl -s $API/jobs/01K.../logs             # tail agent logs (pass ?since=<next_since> to follow)
-curl -s $API/jobs/01K.../artifacts        # pre-signed URLs for every screenshot (15-min expiry)
+AUTH="Authorization: Bearer $TOKEN"
+curl -s $API/jobs/01K... -H "$AUTH"            # status, timings, failure reason if any
+curl -s $API/jobs/01K.../logs -H "$AUTH"       # tail agent logs (pass ?since=<next_since> to follow)
+curl -s $API/jobs/01K.../artifacts -H "$AUTH"  # pre-signed URLs for every screenshot (15-min expiry)
 ```
 
 The concurrency demo — 50 simultaneous jobs, live drain histogram, then a rate-limit burst:
@@ -116,9 +118,9 @@ ECS has no native max-task-duration, so layer 3 is the actual hard guarantee: **
 
 ## Security posture (README-tier by design)
 
-Done: separate IAM task roles — the agent can only `s3:PutObject` artifacts and read/update job records; it cannot launch tasks, read queues, or see other jobs' credentials. Agent security group has **zero ingress**. Each job gets a fresh task: no shared filesystem, no shared memory between Job A and Job B. Artifacts bucket blocks all public access; URLs are short-lived presigns. No secrets in images or task definitions.
+Done: separate IAM task roles — the agent can only `s3:PutObject` artifacts and read/update job records; it cannot launch tasks, read queues, or see other jobs' credentials. Agent security group has **zero ingress**. Each job gets a fresh task: no shared filesystem, no shared memory between Job A and Job B. Artifacts bucket blocks all public access; URLs are short-lived presigns. No secrets in images; the JWT signing secret rides in the controlplane task-def env (SSM SecureString would fix that — see RUNBOOK).
 
-Next in prod: API authentication (the `X-User-Id` header is trusted today), per-job STS credentials scoped to the job's S3 prefix, egress allowlisting through a filtering proxy, private subnets + VPC endpoints (see tradeoffs).
+Done: API authentication — HS256 Bearer JWTs verified in `internal/api`; identity, rate limiting, and job ownership derive from the `sub` claim (`make token SUB=alice` mints one). Next in prod: per-job STS credentials scoped to the job's S3 prefix, egress allowlisting through a filtering proxy, private subnets + VPC endpoints (see tradeoffs).
 
 ## Tradeoffs, honestly
 

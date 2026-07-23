@@ -15,5 +15,6 @@ export AGENT_TASK_DEF=$($TF output -raw agent_task_family)
 export AGENT_LOG_GROUP=$($TF output -raw agent_log_group)
 export SUBNETS=$($TF output -raw subnets)
 export SECURITY_GROUP=$($TF output -raw agent_security_group)
+export JWT_SECRET=$($TF output -raw jwt_secret)
 
 exec "$@"

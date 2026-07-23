@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/shivamjadhav/bravebird-takehome/internal/auth"
 	"github.com/shivamjadhav/bravebird-takehome/internal/store"
 )
 
@@ -28,6 +30,7 @@ type Config struct {
 	Bucket         string
 	AgentLogGroup  string
 	RatePerMinute  int
+	JWTSecret      []byte
 }
 
 type Server struct {
@@ -44,12 +47,40 @@ func NewServer(st *store.Store, sq *sqs.Client, s3c *s3.Client, cw *cloudwatchlo
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("POST /jobs", s.createJob)
 	mux.HandleFunc("GET /jobs/{id}", s.getJob)
 	mux.HandleFunc("GET /jobs/{id}/logs", s.getLogs)
 	mux.HandleFunc("GET /jobs/{id}/artifacts", s.getArtifacts)
-	return mux
+
+	outer := http.NewServeMux()
+	outer.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	outer.Handle("/", s.requireAuth(mux))
+	return outer
+}
+
+type ctxKey struct{}
+
+// requireAuth validates the Bearer JWT and stashes the verified subject in the
+// request context. Everything behind it can trust userID(r).
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "Authorization: Bearer <token> required")
+			return
+		}
+		sub, err := auth.Verify(s.cfg.JWTSecret, token)
+		if err != nil {
+			writeErr(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, sub)))
+	})
+}
+
+func userID(r *http.Request) string {
+	sub, _ := r.Context().Value(ctxKey{}).(string)
+	return sub
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -68,12 +99,7 @@ type createReq struct {
 }
 
 func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
-	// User identity is a trusted header for this take-home; would be an API key/JWT in prod.
-	userID := r.Header.Get("X-User-Id")
-	if userID == "" {
-		writeErr(w, http.StatusBadRequest, "X-User-Id header required")
-		return
-	}
+	userID := userID(r)
 	var req createReq
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
@@ -141,7 +167,8 @@ func (s *Server) loadJob(w http.ResponseWriter, r *http.Request) *store.Job {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return nil
 	}
-	if job == nil {
+	// Ownership check; 404 (not 403) so job IDs don't leak existence.
+	if job == nil || job.UserID != userID(r) {
 		writeErr(w, http.StatusNotFound, "job not found")
 		return nil
 	}

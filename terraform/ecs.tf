@@ -38,6 +38,13 @@ resource "aws_ecs_task_definition" "agent" {
   }])
 }
 
+# Shared HS256 signing secret. Lives in terraform state and the task-def env —
+# acceptable for a demo; prod would be an SSM SecureString + secrets block.
+resource "random_password" "jwt_secret" {
+  length  = 48
+  special = false
+}
+
 resource "aws_ecs_task_definition" "controlplane" {
   family                   = "${var.name}-controlplane"
   requires_compatibilities = ["FARGATE"]
@@ -71,6 +78,7 @@ resource "aws_ecs_task_definition" "controlplane" {
       { name = "RATE_PER_MINUTE", value = tostring(var.rate_per_minute) },
       { name = "JOB_TTL", value = var.job_ttl },
       { name = "AWS_REGION", value = var.region },
+      { name = "JWT_SECRET", value = random_password.jwt_secret.result },
     ]
     logConfiguration = {
       logDriver = "awslogs"

@@ -3,7 +3,7 @@ TF := terraform -chdir=terraform
 MY_IP = $(shell curl -s https://checkip.amazonaws.com)
 TF_VARS = -var "allowed_cidr=$(MY_IP)/32"
 
-.PHONY: build test build-reaper ecr-login push-images deploy destroy api-url run-local loadtest agent-local
+.PHONY: build test build-reaper ecr-login push-images deploy destroy api-url token run-local loadtest agent-local
 
 build:
 	go build ./...
@@ -41,6 +41,10 @@ destroy:
 
 api-url:
 	@scripts/api-url.sh
+
+# Mint a demo JWT: make token SUB=alice
+token:
+	@scripts/with-env.sh go run ./cmd/token -sub $(SUB)
 
 # Run the controlplane on your laptop against the real AWS resources.
 run-local:

@@ -52,6 +52,7 @@ func main() {
 		Bucket:        mustEnv("BUCKET"),
 		AgentLogGroup: mustEnv("AGENT_LOG_GROUP"),
 		RatePerMinute: envInt("RATE_PER_MINUTE", 10),
+		JWTSecret:     []byte(mustEnv("JWT_SECRET")),
 	})
 
 	dispatcher := dispatch.New(sqsClient, ecsClient, st, dispatch.Config{

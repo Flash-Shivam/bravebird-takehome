@@ -49,3 +49,8 @@ output "agent_security_group" {
 output "subnets" {
   value = join(",", data.aws_subnets.default.ids)
 }
+
+output "jwt_secret" {
+  value     = random_password.jwt_secret.result
+  sensitive = true
+}
